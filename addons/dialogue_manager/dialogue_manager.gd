@@ -357,11 +357,27 @@ func get_line(resource: DialogueResource, key: String, extra_game_states: Array)
 	if resource.titles.has(key):
 		key = resource.titles.get(key)
 
-	if key in resource.titles.values():
-		passed_title.emit(resource.titles.find_key(key))
-
 	if not resource.lines.has(key):
 		assert(false, DialogueConstants.translate(&"errors.key_not_found").format({ key = key }))
+
+	## KRL call _init if not visited	
+	var title_name = resource.titles.find_key(key) if key in resource.titles.values() else null
+	var visited = get_state_value('visited', extra_game_states) as Dictionary
+	if visited!=null and title_name and not key in visited:
+		var init_path = title_name.split("/")
+		if init_path[-1]!="_init":
+			init_path[-1] = "_init"
+			var init_title = "/".join(init_path)
+			var init_key = resource.titles.get(init_title)
+			if init_key and not init_key in visited:
+				return await get_line(resource, "|".join([init_key, key, id_trail]), extra_game_states)
+	
+	if title_name:
+		passed_title.emit(title_name)
+
+	## KRL update visited count	
+	if visited!=null:
+		visited[key] = 1+visited.get_or_add(key, 1)
 
 	var data: Dictionary = resource.lines.get(key)
 
@@ -838,11 +854,13 @@ func resolve(tokens: Array, extra_game_states: Array):
 					token["value"] = value
 					token["key"] = index
 				else:
-					if value.has(index):
-						token["type"] = "value"
-						token["value"] = value[index]
-					else:
-						show_error_for_missing_state_value(DialogueConstants.translate(&"runtime.key_not_found").format({ key = str(index), dictionary = token.variable }))
+					token["type"] = "value"
+					token["value"] = value[index] if index in value else null
+					#if value.has(index):
+						#token["type"] = "value"
+						#token["value"] = value[index]
+					#else:
+						#show_error_for_missing_state_value(DialogueConstants.translate(&"runtime.key_not_found").format({ key = str(index), dictionary = token.variable }))
 			elif typeof(value) == TYPE_ARRAY:
 				if tokens.size() > i + 1 and tokens[i + 1].type == DialogueConstants.TOKEN_ASSIGNMENT:
 					# If the next token is an assignment then we need to leave this as a reference
@@ -1166,21 +1184,21 @@ func is_valid(line: DialogueLine) -> bool:
 
 
 func thing_has_method(thing, method: String, args: Array) -> bool:
-	if Builtins.is_supported(thing):
-		return thing != _autoloads
+		if Builtins.is_supported(thing):
+			return thing != _autoloads
 
-	if method in [&"call", &"call_deferred"]:
-		return thing.has_method(args[0])
+		if method in [&"call", &"call_deferred"]:
+			return thing.has_method(args[0])
 
-	if method == &"emit_signal":
-		return thing.has_signal(args[0])
+		if method == &"emit_signal":
+			return thing.has_signal(args[0])
 
-	if thing.has_method(method):
-		return true
+		if thing.has_method(method):
+			return true
 
-	if method.to_snake_case() != method and DialogueSettings.check_for_dotnet_solution():
-		# If we get this far then the method might be a C# method with a Task return type
-		return _get_dotnet_dialogue_manager().ThingHasMethod(thing, method)
+		if method.to_snake_case() != method and DialogueSettings.check_for_dotnet_solution():
+			# If we get this far then the method might be a C# method with a Task return type
+			return _get_dotnet_dialogue_manager().ThingHasMethod(thing, method)
 
 	return false
 
