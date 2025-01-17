@@ -114,22 +114,24 @@ func _can_drop_data(at_position: Vector2, data) -> bool:
 	var files: PackedStringArray = Array(data.files)
 	return files.size() > 0
 
+func _get_import_line(file:String) -> String:
+	var replace_regex: RegEx = RegEx.create_from_string("[^a-zA-Z_0-9]+")
+	var base_dir:String = main_view.current_file_path.get_base_dir()+"/"
+	file = file.trim_prefix(base_dir)
+	var path = file.replace("res://", "").replace(".dialogue", "")
+	return "import \"%s\" as %s\n" % [file, replace_regex.sub(path, "_", true)]
 
 func _drop_data(at_position: Vector2, data) -> void:
-	var replace_regex: RegEx = RegEx.create_from_string("[^a-zA-Z_0-9]+")
-
 	var files: PackedStringArray = Array(data.files)
 	for file in files:
 		# Don't import the file into itself
 		if file == main_view.current_file_path: continue
-
 		if file.get_extension() == "dialogue":
-			var path = file.replace("res://", "").replace(".dialogue", "")
 			# Find the first non-import line in the file to add our import
 			var lines = text.split("\n")
 			for i in range(0, lines.size()):
 				if not lines[i].begins_with("import "):
-					insert_line_at(i, "import \"%s\" as %s\n" % [file, replace_regex.sub(path, "_", true)])
+					insert_line_at(i, _get_import_line(file))
 					set_caret_line(i)
 					break
 		else:
@@ -147,6 +149,20 @@ func _drop_data(at_position: Vector2, data) -> void:
 func _request_code_completion(force: bool) -> void:
 	var cursor: Vector2 = get_cursor()
 	var current_line: String = get_line(cursor.y)
+	var line_stripped:StringName = current_line.strip_edges()	
+	
+	if ("import " in current_line) and (cursor.x > current_line.find("import ")):
+		var file_so_far:String = current_line.get_slice("import ", 1)
+		var prompt = file_so_far.get_slice("\"", 1).get_slice("\"", 0)
+		for file:String in Engine.get_meta("DialogueCache").get_files():
+			if file != main_view.current_file_path:
+				var base_dir:String = main_view.current_file_path.get_base_dir()+"/"
+				var file_path = file.trim_prefix(base_dir) if not file_so_far.is_absolute_path() else file
+				var import_text = _get_import_line(file_path).get_slice("import ", 1)
+				if matches_prompt(prompt, file_path):
+					add_code_completion_option(CodeEdit.KIND_CLASS, import_text, import_text.substr(prompt.length()))
+		update_code_completion_options(true)
+		return
 
 	if ("=> " in current_line or "=>< " in current_line) and (cursor.x > current_line.find("=>")):
 		var prompt: String = current_line.split("=>")[1]
@@ -174,17 +190,36 @@ func _request_code_completion(force: bool) -> void:
 		update_code_completion_options(true)
 		parser.free()
 		return
-
+	
+	# Find keywords also
+	var has_keywords:bool = false
+	if line_stripped!="":
+		var keywords = ["do", "set", "if", "=>", "=><"]
+		for y in range(cursor.y, -1, -1):
+			if "~" in get_line(y):
+				break
+			elif y==0:
+				keywords.append("import")
+		
+		for keyword in keywords:
+			if matches_prompt(line_stripped, keyword):
+				add_code_completion_option(CodeEdit.KIND_PLAIN_TEXT, keyword, keyword.substr(line_stripped.length()), Color.WHITE)
+				has_keywords = true
+	
+	var has_names:bool = false
 	var name_so_far: String = WEIGHTED_RANDOM_PREFIX.sub(current_line.strip_edges(), "")
 	if name_so_far != "" and name_so_far[0].to_upper() == name_so_far[0]:
 		# Only show names starting with that character
 		var names: PackedStringArray = get_character_names(name_so_far)
-		if names.size() > 0:
-			for name in names:
-				add_code_completion_option(CodeEdit.KIND_CLASS, name + ": ", name.substr(name_so_far.length()) + ": ", theme_overrides.text_color, get_theme_icon("Sprite2D", "EditorIcons"))
-			update_code_completion_options(true)
-		else:
-			cancel_code_completion()
+		for name in names:
+			add_code_completion_option(CodeEdit.KIND_CLASS, name + ": ", name.substr(name_so_far.length()) + ": ", theme_overrides.text_color, get_theme_icon("Sprite2D", "EditorIcons"))
+			has_names = true
+			
+	if has_keywords or has_names:
+		update_code_completion_options(true)
+		return
+		
+	cancel_code_completion()
 
 
 func _filter_code_completion_candidates(candidates: Array) -> Array:
@@ -421,7 +456,7 @@ func move_line(offset: int) -> void:
 
 
 func _on_code_edit_symbol_validate(symbol: String) -> void:
-	if symbol.begins_with("res://") and symbol.ends_with(".dialogue"):
+	if symbol.ends_with(".dialogue"):
 		set_symbol_lookup_word_as_valid(true)
 		return
 
@@ -433,8 +468,10 @@ func _on_code_edit_symbol_validate(symbol: String) -> void:
 
 
 func _on_code_edit_symbol_lookup(symbol: String, line: int, column: int) -> void:
-	if symbol.begins_with("res://") and symbol.ends_with(".dialogue"):
-		external_file_requested.emit(symbol, "")
+	if symbol.ends_with(".dialogue"):
+		var file_path = symbol if symbol.is_absolute_path() \
+			else main_view.current_file_path.get_base_dir().path_join(symbol)
+		external_file_requested.emit(file_path, "")
 	else:
 		go_to_title(symbol)
 

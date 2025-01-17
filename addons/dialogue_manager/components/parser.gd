@@ -518,7 +518,7 @@ func prepare(text: String, path: String, include_imported_titles_hashes: bool = 
 	for id in range(0, raw_lines.size()):
 		var line = raw_lines[id]
 		if is_import_line(line):
-			var import_data = extract_import_path_and_name(line)
+			var import_data = extract_import_path_and_name(line, path)
 			var import_hash: int = import_data.path.hash()
 			if import_data.size() > 0:
 				# Keep track of titles so we can add imported ones later
@@ -578,7 +578,9 @@ func prepare(text: String, path: String, include_imported_titles_hashes: bool = 
 							title = imported_titles[bits[0]] + "/" + bits[1]
 							titles[title] = next_nonempty_line_id
 					elif first_title == "":
-						first_title = next_nonempty_line_id
+						# KRL: don't set first_title for 'private' titles
+						if not next_nonempty_line_id.begins_with("_"):
+							first_title = next_nonempty_line_id
 				else:
 					titles[title] = DialogueConstants.ID_ERROR_TITLE_HAS_NO_BODY
 
@@ -960,7 +962,7 @@ func import_content(path: String, prefix: String, imported_line_map: Dictionary,
 		for index in range(0, content.size()):
 			var line = content[index]
 			if is_import_line(line):
-				var import = extract_import_path_and_name(line)
+				var import = extract_import_path_and_name(line, path)
 				if import.size() > 0:
 					if not known_imports.has(import.path.hash()):
 						# Add an empty record into the keys just so we don't end up with cyclic dependencies
@@ -1028,11 +1030,14 @@ func import_content(path: String, prefix: String, imported_line_map: Dictionary,
 		return ERR_FILE_NOT_FOUND
 
 
-func extract_import_path_and_name(line: String) -> Dictionary:
+func extract_import_path_and_name(line: String, path: String) -> Dictionary:
 	var found: RegExMatch = IMPORT_REGEX.search(line)
 	if found:
+		var found_path = found.strings[found.names.path]
+		var import_path = found_path if found_path.is_absolute_path() \
+			else path.get_base_dir().path_join(found_path).simplify_path()
 		return {
-			path = found.strings[found.names.path],
+			path = import_path,
 			prefix = found.strings[found.names.prefix]
 		}
 	else:
