@@ -1184,6 +1184,7 @@ func is_valid(line: DialogueLine) -> bool:
 
 
 func thing_has_method(thing, method: String, args: Array) -> bool:
+	if thing is Object:
 		if Builtins.is_supported(thing):
 			return thing != _autoloads
 
