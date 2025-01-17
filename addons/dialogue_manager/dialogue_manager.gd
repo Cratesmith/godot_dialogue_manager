@@ -362,7 +362,11 @@ func get_line(resource: DialogueResource, key: String, extra_game_states: Array)
 
 	## KRL call _init if not visited	
 	var title_name = resource.titles.find_key(key) if key in resource.titles.values() else null
-	var visited = get_state_value('visited', extra_game_states) as Dictionary
+	var visited = null
+	for state in extra_game_states:
+		visited = state.visited as Dictionary if 'visited' in state else null
+		break
+		
 	if visited!=null and title_name and not key in visited:
 		var init_path = title_name.split("/")
 		if init_path[-1]!="_init":
@@ -377,7 +381,7 @@ func get_line(resource: DialogueResource, key: String, extra_game_states: Array)
 
 	## KRL update visited count	
 	if visited!=null:
-		visited[key] = 1+visited.get_or_add(key, 1)
+		visited[key] = 1+visited.get_or_add(key, 0)
 
 	var data: Dictionary = resource.lines.get(key)
 
